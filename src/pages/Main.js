@@ -15,6 +15,7 @@ function Main(props){
         <div>
             <div>
                 개발중ㅋㅋㅋ
+                신기하네
             </div>
             {exchangeRateContext.data.map((currency,cI)=> {
                 return (
