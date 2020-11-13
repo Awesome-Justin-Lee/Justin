@@ -13,9 +13,14 @@ function Main(props){
 
 
         <div>
+            <input
+                type = {'date'}
+                value = {exchangeRateContext.date}
+                onChange = {event => exchangeRateContext.setDate(event.target.value)}
+            />
             <div>
                 개발중ㅋㅋㅋ
-                신기하네
+                신기하네 야호야호야호
             </div>
             {exchangeRateContext.data.map((currency,cI)=> {
                 return (
