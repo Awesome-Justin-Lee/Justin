@@ -13,6 +13,7 @@ import emoji
 import schedule
 import time
 import threading
+import pymysql
 
 # JSON data read
 with open ('./stock_data.json',encoding = 'UTF-8') as json_file:
@@ -30,6 +31,7 @@ for idx,info in enumerate(json_data_2):
     info_table[idx].append(code)
     info_table[idx].append(price)
     info_table[idx].append(code_name)
+# print(info_table)
     
 # Active Bot with the token
 token = "1461066934:AAHQLhV3b7PJ-EJX-JNJdYv0tz2fZBnWmhs"
@@ -39,46 +41,40 @@ bot = telegram.Bot(token)
 updater = Updater(token=token, use_context=True)
 dispatcher = updater.dispatcher
 
+# for SQL
+justin_db = pymysql.connect(
+    user='root', 
+    passwd = 'dhsh8955', 
+    host='127.0.0.1', 
+    db='1jo', 
+    charset='utf8'
+)
+cursor = justin_db.cursor(pymysql.cursors.DictCursor)
+
 # Pre-requirement Data for send_stock_recommendation
 url = "https://finance.naver.com/item/main.nhn?code=" 
 ment1 = "<<  끝투's 오늘의 추천 종목  >>\n\n"
 ment = ment1
-image = 'test_image.jpg'
-
-# user_list = ["1437875774","1452320827" ]
-user_list = ["1437875774" ]
+image = 'test_image_256.gif'
 
 # help page
 help_text1 = "<<  끝투 사용방법 안내 >>\n\n1.  /help : 도움말 페이지 \n\n"
 help_text2 = "2.  /recommend : 오늘의 추천 주식 \n\n3.  /buy : 주식구매 명령어"
-help_text3 = "\n                 ex) 3번 주식을 20개 매수하려면\n                 /buy 3 20 을 입력하세요 \n"
-help_text = help_text1 + help_text2 + help_text3
+help_text3 = "\n                 ex) 3번 주식을 20개 매수하려면\
+    \n                 /buy 3 20 을 입력하세요\
+    \n\n4.  /sell : 보유주식 전량 매도\n"
+help_text4 = "\n5.  /status : 나의 보유 주식 내역조회\n"
+help_text = help_text1 + help_text2 + help_text3 + help_text4 
 greeting_text = "끝투에 오신 것을 환영합니다!!\n"
 
-    
-    
-# # delete it
-chat_id = '1437875774'
-custom_keyboard = [['1개','2개','3개'],['4개','5개','6개'],['7개','8개','9개'],['입력 완료','구매 취소']]
-reply_markup = telegram.ReplyKeyboardMarkup(custom_keyboard)
-bot.send_message(chat_id=chat_id, text="Custom Keyboard Test",  reply_markup=reply_markup)
-time.sleep(10)
-reply_markup = telegram.ReplyKeyboardRemove()
-bot.send_message(chat_id=chat_id, text="I'm back.", reply_markup=reply_markup)
-    
-# # delete it 2
-# chat_id = '1437875774'
-# custom_keyboard = [['top-left', 'top-right'],  ['bottom-left', 'bottom-right']]
-# # custom_keyboard = [['top-left', 'top-right'],  ['bottom-left', 'bottom-right']]
-# reply_markup = telegram.ReplyKeyboardMarkup(custom_keyboard)
-# bot.send_message(chat_id=chat_id, text="Custom Keyboard Test",  reply_markup=reply_markup)
-# time.sleep(10)
-# reply_markup = telegram.ReplyKeyboardRemove()
-# bot.send_message(chat_id=chat_id, text="I'm back.", reply_markup=reply_markup)
+user_list = ["1437875774","1452320827","1403179813","1376368920","1465787776"] #이준형, 연서희, 이동우, 정예원, 코스콤
+# user_list = ["1437875774"]
+user_list2 = {"1376368920":1,"1465787776":2, "1437875774":3,"1452320827":4,"1403179813":5}
 
-
+def get_user_id(num):
+    return user_list2[num]
     
-# Getting Stock Information
+# Getting Stock Information from naver
 def get_stock_price(code):
     result = requests.get(url+code)
     bs_obj = BeautifulSoup(result.content,"html.parser")
@@ -86,6 +82,40 @@ def get_stock_price(code):
     blind = no_today.find("span", {"class": "blind"}) # 태그 span, 속성값 blind 찾기
     now_price = blind.text
     return now_price
+
+# Getting Stock Information from koscom
+def koscomPrice(code):
+    headers = {'apiKey':'l7xx16014a467a924424b74e86bb2bdf86f2'}
+    url = "https://sandbox-apigw.koscom.co.kr/v2/market/stocks/kospi/"+ code+ "/price"
+    res = requests.get(url, headers=headers)
+    res2 = res.text
+    index = res2.find('error')
+    if index == -1 : 
+        # print("kospi stock")
+        json_data = res.json()
+        json_data2 = json_data["result"]
+        json_data3 = json_data2["trdPrc"]
+    else : 
+        # print("kosdaq stock")
+        headers = {'apiKey':'l7xx16014a467a924424b74e86bb2bdf86f2'}
+        url = "https://sandbox-apigw.koscom.co.kr/v2/market/stocks/kosdaq/"+ code+ "/price"
+        res = requests.get(url, headers=headers)
+        json_data = res.json()
+        json_data2 = json_data["result"]
+        json_data3 = json_data2["trdPrc"]
+    return json_data3     
+
+# # to update info_table which stores recommended stock infos
+def update_info_table():
+    for info in info_table:
+        code = info[1]
+        info[2] = koscomPrice(code)
+
+# # to update json_data_2 which stores recommended stock infos
+def update_json_data_2_table():
+    for info in json_data_2:
+        code = info['stock_number']
+        info['stock_price'] =  koscomPrice(code)
 
 # make stock name as same length with each other
 def equalizer(a):
@@ -101,12 +131,13 @@ def send_stock_recommendation(json_data_2,user_id):
     ment1 = "<<  끝투's 오늘의 추천 종목  >>\n"
     ment2 =  "현재시각 : %04d/%02d/%02d %02d:%02d:%02d\n\n" % (now.tm_year, now.tm_mon, now.tm_mday, now.tm_hour, now.tm_min, now.tm_sec)
     ment = ment1 + ment2
-    image = 'test_image.jpg'    
     for idx,info in enumerate(json_data_2):
         code = info['stock_number']
         code_name = info['stock_name']
         name_len_a = len(code_name)
-        price = info['stock_price']
+        # price = info['stock_price']
+        #getting koscom price
+        price = koscomPrice(code)
         price = str(price)
         price = price.rjust(8)
         url_with_code = url + code
@@ -161,115 +192,139 @@ def find_matching_stock_price(user_choice):
 def find_matching_stock_name(user_choice):
     return info_table[int(user_choice)-1][3]
 
+# status page    
+def status(update, context):
+    user_id = get_user_id(str(update.effective_chat.id))
+    ##======== stuats sql start =========## 
+    sql = " select stockNumber,stockName,stockPrice,stockAmount from stocks where userId = {}; ".format(user_id)
+    cursor.execute(sql)
+    result = cursor.fetchone()
+    status_text = ""
+    if result == None :
+        context.bot.send_message(chat_id=update.effective_chat.id, text= "고객님이 보유한 주식이 없습니다.")
+    else: 
+        cursor.execute(sql)
+        result = cursor.fetchall()
+        profit_mother = 0
+        profit_child = 0
+        for idx, info in enumerate(result):
+            number = info['stockNumber']
+            name = info['stockName']
+            old_price = info['stockPrice']
+            price = koscomPrice(number)
+            amount = info['stockAmount']
+            profit_child = profit_child + price*amount
+            profit_mother = profit_mother + old_price*amount
+            status_text = status_text +'종목명 : ['+name+'],  수량 : ['+str(amount)+']개, 현재가격 : ['+str(price)+']원\n               (총'+str(amount*price)+'원)\n\n' 
+    ##======== stauts sql  end  =========## 
+        status_text = "<< 나의 주식 보유내역 >>\n\n" + status_text 
+        context.bot.send_message(chat_id=update.effective_chat.id, text= status_text)
+
+start_handler = CommandHandler('status', status)
+dispatcher.add_handler(start_handler)
+
 # buy operation
 def buy(update, context):
     user_want = update.message.text
     buy_commend,user_choice,user_quantity = user_want.split()
     user_stock_name = find_matching_stock_name(user_choice)
     user_stock_number = find_matching_stock_number(user_choice)
-    user_stock_price = find_matching_stock_price(user_choice)
-    buy_text1 = "고객님이 선택하신 ["
+    user_stock_price = koscomPrice(user_stock_number)
+    # user_stock_price = find_matching_stock_price(user_choice)
+    # print(str(update.effective_chat.id))
+    user_id = get_user_id(str(update.effective_chat.id))
+    # print(user_id)
+    buy_text1 = "["
     buy_text2 = "] 주식을 ["
     buy_text3 = "원]에 ["
     buy_text4 = "]개 매수 하였습니다."
-    context.bot.send_message(chat_id=update.effective_chat.id, 
-                             text=buy_text1+user_stock_name+buy_text2+user_stock_price+buy_text3+user_quantity+buy_text4)
-    user_response_data = {
-      "response": {
-        "dataValues": [
-            {
-            "stock_number": user_stock_number,
-            "stock_quantity" : user_quantity
-            }
-        ]
-      }
-    }
-    with open("user_response.json", "w", encoding = "UTF-8") as json_file:
-        json.dump(user_response_data, json_file, indent=4, sort_keys=True)
+    buy_text5 = "\n계좌 잔액 : ["
+    ##========= [start] change Account Balance and Stock Amount with sql ===========## 
+    sql = " select balance from accounts where userId = {} and bankName = 'project'; ".format(user_id)
+    cursor.execute(sql)
+    result = cursor.fetchone()
+    stored_money = result['balance']
+    required_money = int(user_stock_price)*int(user_quantity)
+    if result == None :
+        context.bot.send_message(chat_id=update.effective_chat.id, text="끝투 계좌가 없습니다.")
+    elif stored_money < required_money : 
+        fail_text1 = "끝투 계좌 잔고가 부족합니다.\n계좌 잔고 : ["
+        fail_text2 = "필요 금액 : ["
+        context.bot.send_message(chat_id=update.effective_chat.id, text= fail_text1 + str(stored_money) +"]\n"+fail_text2+str(required_money)+"]\n")
+    else :
+        ## seconed : make account balance decreased
+        sql = " update accounts set balance = balance - {} where userId = {} and bankName = 'project'; ".format(required_money,user_id)
+        cursor.execute(sql)
+        justin_db.commit() 
+        ## third : make stockAmount increased
+        # sql = " select stockAmount from stocks where userId = {} and stockNumber = '{}' ;".format(user_id,user_stock_number)
+        # cursor.execute(sql)
+        # result = cursor.fetchone()
+        # if result == None :
+        #     sql = "insert into stocks(stockNumber, stockName, stockPrice, stockAmount,userId) values ('{}','{}',{},{},{} );".format(user_stock_number,user_stock_name,user_stock_price,user_quantity,user_id)
+        # else :
+        #     sql = "update stocks set stockAmount = stockAmount + {} where userId = {} and stockNumber = '{}';".format(user_quantity,user_id,user_stock_number)
+        # cursor.execute(sql)
+        # justin_db.commit() 
+
+        sql = "insert into stocks(stockNumber, stockName, stockPrice, stockAmount,userId) values ('{}','{}',{},{},{} );".format(user_stock_number,user_stock_name,user_stock_price,user_quantity,user_id)
+        cursor.execute(sql)
+        justin_db.commit() 
+    ##========= [ end ] change Account Balance and Stock Amount with sql ===========##
+        context.bot.send_message(chat_id=update.effective_chat.id, 
+                                text=buy_text1+user_stock_name+buy_text2+str(user_stock_price)+buy_text3+user_quantity+buy_text4+buy_text5+str(stored_money-required_money)+"원]\n")
+        user_response_data = {
+        "response": {
+            "dataValues": [
+                {
+                "stock_number": user_stock_number,
+                "stock_quantity" : user_quantity
+                }
+            ]
+        }
+        }
+        with open("user_response.json", "w", encoding = "UTF-8") as json_file:
+            json.dump(user_response_data, json_file, indent=4, sort_keys=True)
 
 start_handler = CommandHandler('buy', buy)
 dispatcher.add_handler(start_handler)
 
 # sell operation
 def sell(update, context):
-    sell_text = "보유하고 있는 주식을 모두 매도하였습니다."
-    context.bot.send_message(chat_id=update.effective_chat.id, 
-                             text= sell_text)
+    user_id = get_user_id(str(update.effective_chat.id))
+    ##======== sell sql start =========## 
+    sql = " select stockNumber,stockName,stockPrice,stockAmount from stocks where userId = {}; ".format(user_id)
+    cursor.execute(sql)
+    result = cursor.fetchone()
+    sell_text = ""
+    if result == None :
+        context.bot.send_message(chat_id=update.effective_chat.id, text= "매도할 주식이 없습니다.")
+    else: 
+        cursor.execute(sql)
+        result = cursor.fetchall()
+        for idx, info in enumerate(result):
+            number = info['stockNumber']
+            name = info['stockName']
+            # price = info['stockPrice']
+            price = koscomPrice(number)
+            amount = info['stockAmount']
+            sell_text = sell_text +'['+name+'] 주식 ['+str(amount)+']개 ['+str(price)+']원에 매도 (총'+str(amount*price)+'원)\n\n' 
+            ## make account balance increased
+            sql = "update accounts set balance = balance + {} where userId = {} and bankName = 'project';".format(price*amount, user_id)
+            cursor.execute(sql)
+            justin_db.commit()
+            ## make Stock Amount decreased
+            sql = "delete from stocks where userId = {} and stockNumber = {} ;".format(user_id,number)
+            cursor.execute(sql)
+            justin_db.commit()
+    ##======== sell sql  end  =========## 
+        sell_text = "보유하고 있는 주식을 모두 매도하였습니다.\n\n<< 매도 내역 >>\n\n" + sell_text 
+        context.bot.send_message(chat_id=update.effective_chat.id, text= sell_text)
 
 
 start_handler = CommandHandler('sell', sell)
 dispatcher.add_handler(start_handler)
 
-#=========================================================
-
-# def buy_stock_buttons_1(update, context):
-#     task_buttons = [
-#         [
-#             InlineKeyboardButton( '1번 주식 매수', callback_data=1 ), 
-#             InlineKeyboardButton( '2번 주식 매수', callback_data=2 )
-#         ],
-#         [   InlineKeyboardButton( '3번 주식 매수', callback_data=3 ), 
-#             InlineKeyboardButton( '4번 주식 매수', callback_data=4 )
-#         ],
-#         [   InlineKeyboardButton( '5번 주식 매수', callback_data=5 ), 
-#             InlineKeyboardButton( '구매 안함', callback_data=6 )
-#         ]
-#     ]
-#     reply_markup = InlineKeyboardMarkup( task_buttons )
-#     context.bot.send_message(chat_id=update.message.chat_id, text='매수할 주식을 선택해주세요.', reply_markup=reply_markup)
-
-    
-# def cb_button(update, context):
-#     query = update.callback_query
-#     data = query.data   
-#     context.bot.send_chat_action(chat_id=update.effective_user.id, action=ChatAction.TYPING)
-#     user_stock_name = find_matching_stock_name(data)
-#     user_stock_number = find_matching_stock_number(data)
-#     user_stock_price = find_matching_stock_price(data)
-#     if data == '6':
-#         context.bot.edit_message_text(text='매수하지 않습니다.', chat_id=query.message.chat_id, message_id=query.message.message_id)
-#     else:
-#         context.bot.edit_message_text(text='[{}]의 매수할 수량을 입력해주세요.'.format(user_stock_name), chat_id=query.message.chat_id, message_id=query.message.message_id)       
-#         task_buttons2 = [
-#             [
-#                 InlineKeyboardButton( '1개', callback_data=1 ), 
-#                 InlineKeyboardButton( '2개', callback_data=2 ),
-#                 InlineKeyboardButton( '3개', callback_data=3 ), 
-#                 InlineKeyboardButton( '4개', callback_data=4 ), 
-#                 InlineKeyboardButton( '5개', callback_data=5 )
-#             ],
-#             [   
-#                 InlineKeyboardButton( '6개', callback_data=6 ), 
-#                 InlineKeyboardButton( '7개', callback_data=7 ),
-#                 InlineKeyboardButton( '8개', callback_data=8 ), 
-#                 InlineKeyboardButton( '9개', callback_data=9 ), 
-#                 InlineKeyboardButton( '10개', callback_data=10 )
-#             ],
-#             [   
-#                 InlineKeyboardButton( '20개', callback_data=11 ), 
-#                 InlineKeyboardButton( '30개', callback_data=12),
-#                 InlineKeyboardButton( '50개', callback_data=13), 
-#                 InlineKeyboardButton( '100개', callback_data=14 ), 
-#                 InlineKeyboardButton( '500개', callback_data=15 )
-#             ],
-#             [   InlineKeyboardButton( '입력 완료', callback_data=16 ), 
-#                 InlineKeyboardButton( '구매 취소', callback_data=17 )
-#             ]
-#         ]      
-#         reply_markup = InlineKeyboardMarkup( task_buttons2 )
-#         context.bot.send_message(chat_id=update.message.chat_id, text='매수할 주식을 선택해주세요.', reply_markup=reply_markup)
-#         time.sleep(20)
-#         context.bot.send_message(chat_id=update.effective_chat.id, text='[{}] 매수를 완료하였습니다.'.format( user_stock_name ))
-
-
-    
-# task_buttons_handler = CommandHandler( 'buy2', buy_stock_buttons_1 )
-# button_callback_handler = CallbackQueryHandler( cb_button )    
- 
-# dispatcher.add_handler( task_buttons_handler )
-# dispatcher.add_handler( button_callback_handler )
-    
-#=========================================================
 
 #for scheduler
 schedule.every(300).seconds.do(report)
