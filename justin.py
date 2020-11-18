@@ -215,6 +215,7 @@ def find_matching_stock_name(user_choice):
 
 # status page    
 def status(update, context):
+    justin_db.commit()
     user_id = get_user_id(str(update.effective_chat.id))
     ##======== stuats sql start =========## 
     sql = " select balance from accounts where userId = {} and bankName = 'project'; ".format(user_id)
@@ -374,7 +375,7 @@ dispatcher.add_handler(start_handler)
 
 
 #for scheduler
-schedule.every(300).seconds.do(report)
+schedule.every(1000).seconds.do(report)
 def priodical_stock_data_report(interval):
     while True:
         schedule.run_pending()
